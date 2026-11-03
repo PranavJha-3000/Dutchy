@@ -151,6 +151,21 @@ You must understand every line you submit. We check this with your video and in 
 1. Click **Use this template**, then **Create a new repository**. Make the repository **public**.
 2. Build your solution in your new repository. Small, clear commits are welcome.
 3. Update this README with a short section called **Decisions**. Write 3 decisions you made and why.
+
+### Decision 1: Integer cents and deterministic splitting
+
+Monetary values are stored as integer cents to avoid floating-point precision issues. When a bill total does not divide evenly among members, the remainder cents are distributed one-by-one to the first members added (in position order). Example: 1000 cents between 3 members → 334, 333, 333. This is deterministic and order-dependent.
+
+### Decision 2: Atomic bill creation with D1.batch()
+
+Bill insertion and all share insertions are performed in a single `DB.batch()` call. If any statement fails, the entire batch rolls back — no partial data persists (no bill without shares, no shares without a bill). This prevents inconsistent state that could occur with separate INSERT statements.
+
+### Decision 3: Idempotent, concurrency-safe payment transition
+
+Payment uses a conditional SQL UPDATE: `UPDATE shares SET paid_at = ?, paid_by_key = ? WHERE id = ? AND bill_id = ? AND paid_at IS NULL`. The `paid_at IS NULL` condition ensures only unpaid shares can be updated. The `paid_by_key` is persisted so that a retry with the same key returns 200 immediately; a different key on an already-paid share returns 409. Same-key retries are idempotent; different-key retries after payment are rejected.
+
+Do not exaggerate concurrency test coverage. The Workers/Vitest environment limitation must remain honestly documented.
+
 4. Record a video of **3 minutes or less** (Loom or unlisted YouTube). Show the architecture, the data flow, and one trade-off you made. Make sure anyone with the link can view it.
 5. Paste the repository link and the video link in the application form.
 
