@@ -19,7 +19,7 @@ export type Member = {
   id: string
   homeId: string
   name: string
-  position: number
+  position?: number
 }
 
 export type Balance = {
@@ -80,16 +80,16 @@ export async function createBill(homeId: string, title: string, totalCents: numb
   return jsonResponse<Bill>(res)
 }
 
-// GET /api/homes/:homeId/bills
 export async function getBills(homeId: string): Promise<Bill[]> {
   const res = await apiFetch(`/api/homes/${homeId}/bills`)
-  return jsonResponse<Bill[]>(res)
+  const data = await jsonResponse<{ bills: Bill[] }>(res)
+  return data.bills
 }
 
-// GET /api/homes/:homeId/balances
 export async function getBalances(homeId: string): Promise<Balance[]> {
   const res = await apiFetch(`/api/homes/${homeId}/balances`)
-  return jsonResponse<Balance[]>(res)
+  const data = await jsonResponse<{ balances: Balance[] }>(res)
+  return data.balances
 }
 
 // Payment
