@@ -1,7 +1,8 @@
-﻿import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import type { FormEvent } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createBill, createMember, getBalances, getBills, payShare } from '../../lib/api'
+import { formatPaise } from '../../lib/money'
 import type { Balance, Bill } from '../../lib/types'
 
 export const Route = createFileRoute('/home/$homeId')({
@@ -10,6 +11,7 @@ export const Route = createFileRoute('/home/$homeId')({
 
 function HomeDashboard() {
   const { homeId } = Route.useParams()
+
   const [bills, setBills] = useState<Bill[]>([])
   const [balances, setBalances] = useState<Balance[]>([])
   const [loading, setLoading] = useState(true)
@@ -18,6 +20,7 @@ function HomeDashboard() {
   const [memberName, setMemberName] = useState('')
   const [memberLoading, setMemberLoading] = useState(false)
   const [memberError, setMemberError] = useState<string | null>(null)
+  const [memberSuccess, setMemberSuccess] = useState<string | null>(null)
 
   const [billTitle, setBillTitle] = useState('')
   const [billTotal, setBillTotal] = useState('')
@@ -25,6 +28,8 @@ function HomeDashboard() {
   const [billError, setBillError] = useState<string | null>(null)
 
   const [payingShareIds, setPayingShareIds] = useState<Set<string>>(new Set())
+
+  const payKeysRef = useRef<Record<string, string>>({})
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -53,9 +58,11 @@ function HomeDashboard() {
     }
     setMemberLoading(true)
     setMemberError(null)
+    setMemberSuccess(null)
     try {
       await createMember(homeId, trimmed)
       setMemberName('')
+      setMemberSuccess('Member added')
       await loadData()
     } catch (err) {
       setMemberError(err instanceof Error ? err.message : 'Failed to add member')
@@ -73,7 +80,7 @@ function HomeDashboard() {
       return
     }
     if (!Number.isSafeInteger(total) || total <= 0) {
-      setBillError('Total must be a positive whole number (cents)')
+      setBillError('Total must be a positive whole number (paise)')
       return
     }
     setBillLoading(true)
@@ -90,8 +97,6 @@ function HomeDashboard() {
     }
   }
 
-  const payKeysRef = useRef<Record<string, string>>({})
-
   const handlePay = async (billId: string, shareId: string) => {
     setPayingShareIds((prev) => new Set([...prev, shareId]))
     try {
@@ -99,17 +104,14 @@ function HomeDashboard() {
       payKeysRef.current[shareId] = key
       await payShare(billId, shareId, key)
       await loadData()
-      // Clear only this share's key after confirmed 200
       delete payKeysRef.current[shareId]
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Payment failed'
       setError(message)
-      // HTTP 409: refresh server data; clear key only if share is already paid
       if (message.includes('already paid')) {
         await loadData()
         delete payKeysRef.current[shareId]
       }
-      // Otherwise retain the key for uncertain network failures
     } finally {
       setPayingShareIds((prev) => {
         const next = new Set(prev)
@@ -119,121 +121,240 @@ function HomeDashboard() {
     }
   }
 
+  const totalOutstanding = balances.reduce((sum, balance) => sum + balance.outstandingCents, 0)
   if (loading) {
     return (
-      <main style={{ padding: 24 }}>
-        <p>Loading...</p>
-      </main>
+      <>
+        <header className="site-header">
+          <div className="container">
+            <div className="brand">
+              <span className="brand-mark">D</span>
+              <span>Dutchy</span>
+            </div>
+            <nav className="header-nav">
+              <a href="/">Homes</a>
+            </nav>
+          </div>
+        </header>
+        <main className="page">
+          <div className="container">
+            <div className="loading-block">Loading home…</div>
+          </div>
+        </main>
+      </>
     )
   }
 
   return (
-    <main style={{ padding: 24, fontFamily: 'system-ui, sans-serif' }}>
-      <h1>Home {homeId}</h1>
-      <a href="/">Homes</a>
-      {error && <p style={{ color: 'red' }}>{error}</p>}
+    <>
+      <header className="site-header">
+        <div className="container">
+          <div className="brand">
+            <span className="brand-mark">D</span>
+            <span>Dutchy</span>
+          </div>
+          <nav className="header-nav">
+            <a href="/">Homes</a>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => void loadData()}
+              disabled={loading}
+            >
+              Refresh
+            </button>
+          </nav>
+        </div>
+      </header>
 
-      <section style={{ marginBottom: 24 }}>
-        <h2>Add member</h2>
-        <form onSubmit={handleAddMember}>
-          <input
-            type="text"
-            value={memberName}
-            onChange={(e) => setMemberName(e.target.value)}
-            placeholder="Member name"
-            minLength={1}
-            style={{ padding: 8, fontSize: 16 }}
-          />
-          <button
-            type="submit"
-            disabled={memberLoading}
-            style={{ marginLeft: 8, padding: '8px 12px', fontSize: 16 }}
-          >
-            Add
-          </button>
-        </form>
-        {memberError && <p style={{ color: 'red' }}>{memberError}</p>}
-      </section>
+      <main className="page">
+        <div className="container">
+          <div className="page-header">
+            <div>
+              <h1 className="page-title">Home</h1>
+              <p className="page-subtitle">ID {homeId}</p>
+            </div>
+          </div>
 
-      <section style={{ marginBottom: 24 }}>
-        <h2>Create bill</h2>
-        <form onSubmit={handleAddBill}>
-          <input
-            type="text"
-            value={billTitle}
-            onChange={(e) => setBillTitle(e.target.value)}
-            placeholder="Title"
-            style={{ padding: 8, fontSize: 16, marginRight: 8 }}
-          />
-          <input
-            type="number"
-            value={billTotal}
-            onChange={(e) => setBillTotal(e.target.value)}
-            placeholder="Total cents"
-            style={{ padding: 8, fontSize: 16, marginRight: 8 }}
-          />
-          <button
-            type="submit"
-            disabled={billLoading}
-            style={{ padding: '8px 12px', fontSize: 16 }}
-          >
-            Create bill
-          </button>
-        </form>
-        {billError && <p style={{ color: 'red' }}>{billError}</p>}
-      </section>
+          {error && (
+            <div className="alert alert-error" role="alert">
+              {error}
+            </div>
+          )}
 
-      <section style={{ marginBottom: 24 }}>
-        <h2>Bills</h2>
-        {bills.length === 0 ? (
-          <p>No bills yet.</p>
-        ) : (
-          <ul>
-            {bills.map((bill) => (
-              <li key={bill.id} style={{ marginBottom: 16 }}>
-                <strong>{bill.title}</strong> — {bill.totalCents} cents
-                <ul>
-                  {bill.shares.map((share) => (
-                    <li key={share.id}>
-                      {share.memberName ?? 'Member'}: {share.amountCents} cents
-                      {share.paidAt ? (
-                        <span> (paid)</span>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={payingShareIds.has(share.id)}
-                          onClick={() => void handlePay(bill.id, share.id)}
-                          style={{ marginLeft: 8 }}
-                        >
-                          Pay
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+          <div className="grid-2 section">
+            <div className="card">
+              <h2 className="card-title">Add member</h2>
+              <p className="card-desc">Add people who share this home.</p>
+              <form className="form" onSubmit={handleAddMember}>
+                <div className="field">
+                  <label htmlFor="member-name">Member name</label>
+                  <input
+                    id="member-name"
+                    className="input"
+                    type="text"
+                    value={memberName}
+                    onChange={(e) => setMemberName(e.target.value)}
+                    placeholder="Member name"
+                    minLength={1}
+                    disabled={memberLoading}
+                  />
+                  {memberError && (
+                    <p className="field-error" role="alert">
+                      {memberError}
+                    </p>
+                  )}
+                  {memberSuccess && <p className="field-success">{memberSuccess}</p>}
+                </div>
+                <button type="submit" className="btn btn-primary" disabled={memberLoading}>
+                  {memberLoading ? (
+                    <>
+                      <span className="spinner" /> Adding…
+                    </>
+                  ) : (
+                    'Add member'
+                  )}
+                </button>
+              </form>
+            </div>
 
-      <section>
-        <h2>Balances</h2>
-        <button type="button" onClick={() => void loadData()} style={{ marginBottom: 8 }}>
-          Refresh
-        </button>
-        {balances.length === 0 ? (
-          <p>No members yet.</p>
-        ) : (
-          <ul>
-            {balances.map((b) => (
-              <li key={b.memberId}>
-                {b.name}: {b.outstandingCents} cents outstanding
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </main>
+            <div className="card">
+              <h2 className="card-title">Create bill</h2>
+              <p className="card-desc">Split a new expense among all members.</p>
+              <form className="form" onSubmit={handleAddBill}>
+                <div className="field">
+                  <label htmlFor="bill-title">Title</label>
+                  <input
+                    id="bill-title"
+                    className="input"
+                    type="text"
+                    value={billTitle}
+                    onChange={(e) => setBillTitle(e.target.value)}
+                    placeholder="Title"
+                    disabled={billLoading}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="bill-total">Total (paise)</label>
+                  <input
+                    id="bill-total"
+                    className="input"
+                    type="number"
+                    value={billTotal}
+                    onChange={(e) => setBillTotal(e.target.value)}
+                    placeholder="Total paise"
+                    disabled={billLoading}
+                  />
+                  {billError && (
+                    <p className="field-error" role="alert">
+                      {billError}
+                    </p>
+                  )}
+                </div>
+                <button type="submit" className="btn btn-primary" disabled={billLoading}>
+                  {billLoading ? (
+                    <>
+                      <span className="spinner" /> Creating…
+                    </>
+                  ) : (
+                    'Create bill'
+                  )}
+                </button>
+              </form>
+            </div>
+          </div>
+
+          <div className="card section">
+            <div className="section-header">
+              <h2 className="section-title">Outstanding balances</h2>
+            </div>
+            {balances.length === 0 ? (
+              <div className="empty">
+                <p className="empty-title">No members yet</p>
+                <p className="empty-copy">Add a member to start tracking balances.</p>
+              </div>
+            ) : (
+              <div>
+                {balances.map((balance) => (
+                  <div className="balance-row" key={balance.memberId}>
+                    <span className="balance-name">{balance.name}</span>
+                    <span
+                      className={
+                        balance.outstandingCents === 0
+                          ? 'balance-amount balance-amount-zero'
+                          : 'balance-amount'
+                      }
+                    >
+                      {formatPaise(balance.outstandingCents)} outstanding
+                    </span>
+                  </div>
+                ))}
+                <div className="balance-row balance-total">
+                  <span className="balance-name">Total outstanding</span>
+                  <span className="balance-amount">{formatPaise(totalOutstanding)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="section">
+            <div className="section-header">
+              <h2 className="section-title">Bills</h2>
+              <span className="page-subtitle">{bills.length} total</span>
+            </div>
+            {bills.length === 0 ? (
+              <div className="card empty">
+                <p className="empty-title">No bills yet</p>
+                <p className="empty-copy">Create a bill to split an expense.</p>
+              </div>
+            ) : (
+              <div className="stack">
+                {bills.map((bill) => (
+                  <div className="bill-card" key={bill.id}>
+                    <div className="bill-head">
+                      <h3 className="bill-title">{bill.title}</h3>
+                      <span className="bill-total">{formatPaise(bill.totalCents)} total</span>
+                    </div>
+                    <div>
+                      {bill.shares.map((share) => (
+                        <div className="share-row" key={share.id}>
+                          <div>
+                            <div className="share-name">{share.memberName ?? 'Member'}</div>
+                            <div className="share-amount">{formatPaise(share.amountCents)}</div>
+                          </div>
+                          <div className="share-actions">
+                            {share.paidAt ? (
+                              <span className="badge badge-paid">Paid</span>
+                            ) : (
+                              <>
+                                <span className="badge badge-unpaid">Unpaid</span>
+                                <button
+                                  type="button"
+                                  className="btn btn-primary btn-sm"
+                                  disabled={payingShareIds.has(share.id)}
+                                  onClick={() => void handlePay(bill.id, share.id)}
+                                >
+                                  {payingShareIds.has(share.id) ? (
+                                    <>
+                                      <span className="spinner" /> Paying…
+                                    </>
+                                  ) : (
+                                    'Pay'
+                                  )}
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
+    </>
   )
 }
